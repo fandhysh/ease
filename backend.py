@@ -18,12 +18,11 @@ downloaded_files = {}  # Menyimpan path file hasil download
 
 
 def is_supported_url(url):
-    """Memeriksa apakah URL didukung oleh yt-dlp"""
     try:
-        with yt_dlp.YoutubeDL() as ydl:
+        with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
             ydl.extract_info(url, download=False)
         return True
-    except yt_dlp.utils.DownloadError:
+    except:
         return False
 
 
@@ -32,24 +31,54 @@ def download():
     data = request.get_json()
     url = data.get("url")
     download_id = data.get("id")
-    format_type = data.get("format", "mp4")  # Default ke MP4 jika tidak dipilih
+    format_type = data.get("format", "mp4")
 
     if not url or not download_id:
         return jsonify({"error": "URL dan ID diperlukan"}), 400
-
-    if not is_supported_url(url):
-        return jsonify({"error": "URL tidak didukung"}), 400
 
     if download_id in download_processes:
         return jsonify({"error": "Download sedang berlangsung"}), 400
 
     output_ext = "mp4" if format_type == "mp4" else "mp3"
-    format_flag = "bestvideo+bestaudio/best" if format_type == "mp4" else "bestaudio"
 
-    output_path = f"{DOWNLOAD_FOLDER}/%(title)s.{output_ext}"
-    command = ["yt-dlp", "-o", output_path, "-f", format_flag, url]
+    # Perbaikan Logika Command
+    # Tambahkan --no-playlist agar tidak mengunduh seluruh list YouTube Mix
+    if format_type == "mp4":
+        command = [
+            "yt-dlp",
+            "--no-playlist",  # <--- TAMBAHKAN INI
+            "-o",
+            f"{DOWNLOAD_FOLDER}/%(title)s.%(ext)s",
+            "-f",
+            "bestvideo+bestaudio/best",
+            "--merge-output-format",
+            "mp4",
+            "--downloader",
+            "aria2c",
+            "--downloader-args",
+            "aria2c:-x 16 -s 16 -k 1M",
+            url,
+        ]
+    else:
+        command = [
+            "yt-dlp",
+            "--no-playlist",  # <--- TAMBAHKAN INI
+            "-o",
+            f"{DOWNLOAD_FOLDER}/%(title)s.%(ext)s",
+            "-f",
+            "bestaudio",
+            "--extract-audio",
+            "--audio-format",
+            "mp3",
+            "--downloader",
+            "aria2c",
+            "--downloader-args",
+            "aria2c:-x 16 -s 16 -k 1M",
+            url,
+        ]
 
     try:
+        # Menjalankan proses di background agar bisa di-cancel nanti
         if sys.platform == "win32":
             process = subprocess.Popen(
                 command, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
@@ -58,29 +87,40 @@ def download():
             process = subprocess.Popen(command, preexec_fn=os.setsid)
 
         download_processes[download_id] = process
-        process.wait()  # Tunggu hingga proses selesai
+        process.wait()  # Menunggu proses selesai
 
+        # Mencari file hasil download
         files = glob.glob(f"{DOWNLOAD_FOLDER}/*.{output_ext}")
+        if not files:
+            files = glob.glob(
+                f"{DOWNLOAD_FOLDER}/*.mkv"
+            )  # Backup jika format merge meleset
+
         latest_file = max(files, key=os.path.getctime) if files else None
 
         if latest_file:
             downloaded_files[download_id] = latest_file
             return jsonify(
-                {"message": "Download selesai", "id": download_id, "file": latest_file}
+                {
+                    "message": "Download selesai",
+                    "id": download_id,
+                    "file": os.path.basename(latest_file),
+                }
             )
 
         return jsonify({"error": "Gagal mengunduh video"}), 500
     except Exception as e:
-        return jsonify({"error": f"Terjadi kesalahan: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if download_id in download_processes:
+            del download_processes[download_id]
 
 
 @app.route("/files/<download_id>", methods=["GET"])
 def get_file(download_id):
     if download_id not in downloaded_files:
         return jsonify({"error": "File tidak ditemukan"}), 404
-
-    file_path = downloaded_files[download_id]
-    return send_file(file_path, as_attachment=True)
+    return send_file(downloaded_files[download_id], as_attachment=True)
 
 
 @app.route("/cancel", methods=["POST"])
@@ -101,13 +141,16 @@ def cancel_download():
         else:
             os.killpg(os.getpgid(process.pid), signal.SIGTERM)
 
-        process.wait()  # Tunggu hingga proses benar-benar berhenti
+        process.wait()
     except Exception as e:
         return jsonify({"error": f"Gagal membatalkan: {str(e)}"}), 500
 
-    del download_processes[download_id]  # Hapus dari daftar proses aktif
+    if download_id in download_processes:
+        del download_processes[download_id]
+
     return jsonify({"message": "Download dibatalkan"})
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=60040)
+    # Pastikan host 0.0.0.0 agar bisa diakses lewat NAT VPS
+    app.run(host="0.0.0.0", port=10000)
