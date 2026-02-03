@@ -14,7 +14,7 @@ document.getElementById("downloadBtn").addEventListener("click", async () => {
   cancelBtn.disabled = false;
 
   try {
-    const response = await fetch("http://141.11.190.106:60040/download", {
+    const response = await fetch("http://141.11.190.106:61000/download", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -29,7 +29,7 @@ document.getElementById("downloadBtn").addEventListener("click", async () => {
 
     setTimeout(() => {
       if (result.file) {
-        window.location.href = `http://141.11.190.106:60040/files/${currentDownloadId}`;
+        window.location.href = `http://141.11.190.106:61000/files/${currentDownloadId}`;
       } else {
         statusEl.textContent = "Download gagal!";
       }
@@ -50,7 +50,7 @@ document.getElementById("cancelBtn").addEventListener("click", async () => {
   }
 
   try {
-    const response = await fetch("http://141.11.190.106:60040/cancel", {
+    const response = await fetch("http://141.11.190.106:61000/cancel", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: currentDownloadId }),
