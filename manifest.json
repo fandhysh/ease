@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "YT Downloader",
+  "version": "1.0",
+  "description": "Download video dari URL YouTube",
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icon.png"
+  },
+  "permissions": ["storage", "downloads"],
+  "host_permissions": [
+    "http://194.62.248.69:60040/*",
+    "ws://194.62.248.69:60040/"
+  ]
+}
